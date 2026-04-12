@@ -484,24 +484,34 @@ setup_godaddy_dns() {
 wait_for_dns() {
     local domain="$1"
     local expected_ip="$2"
-    local max_wait=300  # 最长等 5 分钟
-    local interval=10
+    local max_wait=600  # 最长等 10 分钟
+    local interval=15
 
-    info "等待 DNS 生效 (${domain} -> ${expected_ip}) ..."
+    # 使用外部 DNS (Google 8.8.8.8 + Cloudflare 1.1.1.1) 检测, 更接近 Let's Encrypt 的解析结果
+    info "等待 DNS 全球生效 (${domain} -> ${expected_ip}) ..."
+    info "使用外部 DNS 服务器验证 (8.8.8.8, 1.1.1.1)"
     local elapsed=0
     while [[ $elapsed -lt $max_wait ]]; do
-        local resolved
-        resolved=$(dig +short "$domain" A 2>/dev/null | head -1)
-        if [[ "$resolved" == "$expected_ip" ]]; then
-            info "DNS 已生效: ${domain} -> ${resolved}"
+        local resolved_google resolved_cloudflare
+        resolved_google=$(dig +short "$domain" A @8.8.8.8 2>/dev/null | head -1)
+        resolved_cloudflare=$(dig +short "$domain" A @1.1.1.1 2>/dev/null | head -1)
+
+        if [[ "$resolved_google" == "$expected_ip" && "$resolved_cloudflare" == "$expected_ip" ]]; then
+            info "DNS 已全球生效: ${domain} -> ${expected_ip}"
             return 0
         fi
-        echo -e "  ${YELLOW}等待中... 当前解析: ${resolved:-无} (已等待 ${elapsed}s)${NC}"
+        echo -e "  ${YELLOW}等待中... Google DNS: ${resolved_google:-无}, Cloudflare DNS: ${resolved_cloudflare:-无} (已等待 ${elapsed}s)${NC}"
         sleep "$interval"
         elapsed=$((elapsed + interval))
     done
 
-    warn "DNS 在 ${max_wait}s 内未生效, 当前解析: $(dig +short "$domain" A 2>/dev/null | head -1)"
+    local final_google final_cloudflare
+    final_google=$(dig +short "$domain" A @8.8.8.8 2>/dev/null | head -1)
+    final_cloudflare=$(dig +short "$domain" A @1.1.1.1 2>/dev/null | head -1)
+    warn "DNS 在 ${max_wait}s 内未完全生效"
+    warn "  Google DNS:     ${final_google:-无}"
+    warn "  Cloudflare DNS: ${final_cloudflare:-无}"
+    warn "  期望 IP:        ${expected_ip}"
     read -rp "是否继续? DNS 未生效时 certbot 会失败 (y/n): " CONT
     if [[ "$CONT" != "y" && "$CONT" != "Y" ]]; then error "已取消, 请等 DNS 生效后重新运行"; fi
 }
