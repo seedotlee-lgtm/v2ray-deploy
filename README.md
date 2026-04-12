@@ -23,6 +23,23 @@
 
 ---
 
+## 一键安装
+
+### 完全版安装（含 GoDaddy DNS 设置）：                                                    
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/seedotlee-lgtm/v2ray-deploy/main/{v2ray-d
+  eploy.sh,godaddy-dns.sh} && bash v2ray-deploy.sh full
+```
+
+### 仅安装 V2Ray + Nginx（DNS 需自行配置）：                                               
+
+```bash
+bash <(curl -fsSL                                                                      
+  https://raw.githubusercontent.com/seedotlee-lgtm/v2ray-deploy/main/v2ray-deploy.sh)
+  install
+```
+
 ## v2ray-deploy.sh
 
 在 Debian/Ubuntu VPS 上一键部署 V2Ray + Nginx + WebSocket + TLS，并支持独立更换域名。
