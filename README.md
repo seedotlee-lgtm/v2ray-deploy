@@ -29,20 +29,21 @@
 ### 完全版安装（含 GoDaddy DNS 设置）：                                                    
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/seedotlee-lgtm/v2ray-deploy/main/v2ray-deploy.sh \   
-    && curl -fsSLO https://raw.githubusercontent.com/seedotlee-lgtm/v2ray-deploy/main/godaddy-dns.sh \    
-    && curl -fsSLO https://raw.githubusercontent.com/seedotlee-lgtm/v2ray-deploy/main/generate_client_config.py \                                                               
-    && curl -fsSLO https://raw.githubusercontent.com/seedotlee-lgtm/v2ray-deploy/main/requirements.txt \  
-    && bash v2ray-deploy.sh full 
+curl -fsSLO https://raw.githubusercontent.com/seedotlee-lgtm/v2ray-deploy/main/v2ray-deploy.sh \
+&& curl -fsSLO https://raw.githubusercontent.com/seedotlee-lgtm/v2ray-deploy/main/godaddy-dns.sh \
+&& curl -fsSLO https://raw.githubusercontent.com/seedotlee-lgtm/v2ray-deploy/main/generate_client_config.py \
+&& curl -fsSLO https://raw.githubusercontent.com/seedotlee-lgtm/v2ray-deploy/main/requirements.txt \
+&& bash v2ray-deploy.sh full 
 ```
 
 ### 仅安装 V2Ray + Nginx（DNS 需自行配置）： 
 **需要提前将域名解析到你的服务器，否则证书会生成失败**
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/seedotlee-lgtm/v2ray-deploy/main/v2ray-deploy.sh \ && curl -fsSLO https://raw.githubusercontent.com/seedotlee-lgtm/v2ray-deploy/main/generate_client_config.py \                                                               
-    && curl -fsSLO https://raw.githubusercontent.com/seedotlee-lgtm/v2ray-deploy/main/requirements.txt \
-    && bash v2ray-deploy.sh install
+curl -fsSLO https://raw.githubusercontent.com/seedotlee-lgtm/v2ray-deploy/main/v2ray-deploy.sh \
+&& curl -fsSLO https://raw.githubusercontent.com/seedotlee-lgtm/v2ray-deploy/main/generate_client_config.py \
+&& curl -fsSLO https://raw.githubusercontent.com/seedotlee-lgtm/v2ray-deploy/main/requirements.txt \
+&& bash v2ray-deploy.sh install
 ```
 
 ## v2ray-deploy.sh
