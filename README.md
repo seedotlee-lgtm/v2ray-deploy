@@ -1,4 +1,5 @@
-# v2ray-deploy
+# VPS 工具箱
+
 一键部署 V2Ray (WebSocket + TLS + Web) 及 GoDaddy DNS 管理的 Shell 脚本集合。
 
 ---
@@ -28,14 +29,20 @@
 ### 完全版安装（含 GoDaddy DNS 设置）：                                                    
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/seedotlee-lgtm/v2ray-deploy/main/v2ray-deploy.sh && curl -fsSLO https://raw.githubusercontent.com/seedotlee-lgtm/v2ray-deploy/main/godaddy-dns.sh && bash v2ray-deploy.sh full
+curl -fsSLO https://raw.githubusercontent.com/seedotlee-lgtm/v2ray-deploy/main/v2ray-deploy.sh \   
+    && curl -fsSLO https://raw.githubusercontent.com/seedotlee-lgtm/v2ray-deploy/main/godaddy-dns.sh \    
+    && curl -fsSLO https://raw.githubusercontent.com/seedotlee-lgtm/v2ray-deploy/main/generate_client_config.py \                                                               
+    && curl -fsSLO https://raw.githubusercontent.com/seedotlee-lgtm/v2ray-deploy/main/requirements.txt \  
+    && bash v2ray-deploy.sh full 
 ```
 
 ### 仅安装 V2Ray + Nginx（DNS 需自行配置）： 
 **需要提前将域名解析到你的服务器，否则证书会生成失败**
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/seedotlee-lgtm/v2ray-deploy/main/v2ray-deploy.sh) install
+curl -fsSLO https://raw.githubusercontent.com/seedotlee-lgtm/v2ray-deploy/main/v2ray-deploy.sh \ && curl -fsSLO https://raw.githubusercontent.com/seedotlee-lgtm/v2ray-deploy/main/generate_client_config.py \                                                               
+    && curl -fsSLO https://raw.githubusercontent.com/seedotlee-lgtm/v2ray-deploy/main/requirements.txt \
+    && bash v2ray-deploy.sh install
 ```
 
 ## v2ray-deploy.sh
@@ -73,7 +80,7 @@ bash v2ray-deploy.sh info
 | WebSocket 路径 | Nginx 转发路径 | `/login` |
 | 邮箱 | Let's Encrypt 证书通知邮箱 | - |
 
-确认后自动执行 6 个步骤：
+确认后自动执行 7 个步骤：
 
 1. 安装 V2Ray
 2. 配置 V2Ray (vmess + WebSocket)
@@ -81,8 +88,9 @@ bash v2ray-deploy.sh info
 4. 配置 Nginx 反向代理 (HTTP + WS 转发)
 5. 配置防火墙 (放行 80、443 及 V2Ray 端口)
 6. 通过 certbot 申请并安装 TLS 证书 (自动续期)
+7. 生成客户端配置文件 (Clash Verge + Shadowrocket + VMess 链接)
 
-部署完成后输出完整的客户端连接参数。
+部署完成后输出完整的客户端连接参数，并在 `client-configs/` 目录生成可直接导入的配置文件。
 
 ### change-domain 流程
 
@@ -159,7 +167,32 @@ bash godaddy-dns.sh delete -d example.com -n old -t A
 
 ---
 
-## 典型部署流程
+## 快速开始 (一键部署)
+
+SSH 到 VPS，执行以下命令即可完成全部部署（含 GoDaddy DNS 自动设置）：
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/seedotlee-lgtm/v2ray-deploy/main/v2ray-deploy.sh \
+  && curl -fsSLO https://raw.githubusercontent.com/seedotlee-lgtm/v2ray-deploy/main/godaddy-dns.sh \
+  && curl -fsSLO https://raw.githubusercontent.com/seedotlee-lgtm/v2ray-deploy/main/generate_client_config.py \
+  && curl -fsSLO https://raw.githubusercontent.com/seedotlee-lgtm/v2ray-deploy/main/requirements.txt \
+  && bash v2ray-deploy.sh full
+```
+
+如果 DNS 已手动配置好，可用 `install` 代替 `full`：
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/seedotlee-lgtm/v2ray-deploy/main/v2ray-deploy.sh \
+  && curl -fsSLO https://raw.githubusercontent.com/seedotlee-lgtm/v2ray-deploy/main/generate_client_config.py \
+  && curl -fsSLO https://raw.githubusercontent.com/seedotlee-lgtm/v2ray-deploy/main/requirements.txt \
+  && bash v2ray-deploy.sh install
+```
+
+部署完成后会自动生成 Clash Verge 和 Shadowrocket 客户端配置文件。
+
+---
+
+## 典型部署流程 (分步)
 
 ```bash
 # 1. 配置 GoDaddy API
