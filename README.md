@@ -31,7 +31,8 @@
 curl -fsSLO https://raw.githubusercontent.com/seedotlee-lgtm/v2ray-deploy/main/{v2ray-deploy.sh,godaddy-dns.sh} && bash v2ray-deploy.sh full
 ```
 
-### 仅安装 V2Ray + Nginx（DNS 需自行配置）：                                               
+### 仅安装 V2Ray + Nginx（DNS 需自行配置）： 
+*** 需要提前将域名解析到你的服务器，否则证书会生成失败 ***
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/seedotlee-lgtm/v2ray-deploy/main/v2ray-deploy.sh) install
