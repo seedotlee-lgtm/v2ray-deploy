@@ -361,11 +361,94 @@ NEOF
     # 4. 申请新证书
     install_cert "$NEW_DOMAIN" "$CERT_EMAIL"
 
+    # 5. 重新生成客户端配置
+    local uuid
+    uuid=$(grep -oP '"id"\s*:\s*"\K[^"]+' /usr/local/etc/v2ray/config.json 2>/dev/null || echo "")
+    if [[ -n "$uuid" ]]; then
+        generate_client_configs "$NEW_DOMAIN" "$uuid" "$WS_PATH"
+    fi
+
     info "域名更换完成!"
     echo ""
     show_info
     echo -e "${YELLOW}提示: 请确保新域名的 DNS A 记录已指向本服务器 IP${NC}"
     echo -e "${YELLOW}如使用 Cloudflare, 请在 Cloudflare 控制台更新 DNS 记录${NC}"
+}
+
+# ============================================================
+#  生成客户端配置文件 (Clash Verge + Shadowrocket)
+# ============================================================
+generate_client_configs() {
+    local domain="$1"
+    local uuid="$2"
+    local ws_path="$3"
+
+    local script_dir
+    script_dir=$(cd "$(dirname "$0")" && pwd)
+    local gen_script="${script_dir}/generate_client_config.py"
+    local req_file="${script_dir}/requirements.txt"
+    local output_dir="${script_dir}/client-configs"
+    local server_json="${output_dir}/server.json"
+
+    if [[ ! -f "$gen_script" ]]; then
+        warn "未找到 generate_client_config.py, 跳过客户端配置生成"
+        return 0
+    fi
+
+    # 确保 Python3 可用
+    if ! command -v python3 &>/dev/null; then
+        info "安装 Python3..."
+        if ! apt install -y python3 python3-venv 2>/dev/null; then
+            warn "Python3 安装失败, 跳过客户端配置生成"
+            return 0
+        fi
+    fi
+
+    if ! command -v python3 &>/dev/null; then
+        warn "Python3 不可用, 跳过客户端配置生成"
+        return 0
+    fi
+
+    # 安装依赖 (如 requirements.txt 非空)
+    if [[ -f "$req_file" ]] && grep -qvE '^\s*#|^\s*$' "$req_file" 2>/dev/null; then
+        info "安装 Python 依赖..."
+        python3 -m pip install -r "$req_file" --quiet 2>/dev/null || \
+        python3 -m pip install -r "$req_file" --quiet --break-system-packages 2>/dev/null || \
+        warn "Python 依赖安装失败, 继续尝试生成..."
+    fi
+
+    # 写出 server.json
+    mkdir -p "$output_dir"
+    cat > "$server_json" <<SEOF
+{
+    "name": "VMess-${domain}",
+    "server": "${domain}",
+    "port": 443,
+    "uuid": "${uuid}",
+    "alterId": 0,
+    "cipher": "auto",
+    "network": "ws",
+    "ws_path": "${ws_path}",
+    "ws_host": "${domain}",
+    "tls": true,
+    "servername": "${domain}"
+}
+SEOF
+    info "服务端配置已写入: ${server_json}"
+
+    # 调用 Python 脚本生成客户端配置
+    info "生成客户端配置文件..."
+    if python3 "$gen_script" -c "$server_json" -d "$output_dir"; then
+        echo ""
+        info "客户端配置文件已生成到: ${output_dir}/"
+        echo -e "  ${GREEN}${output_dir}/clash_config.yaml${NC}   - Clash Verge"
+        echo -e "  ${GREEN}${output_dir}/shadowrocket.conf${NC}   - Shadowrocket"
+        echo -e "  ${GREEN}${output_dir}/server.json${NC}         - 服务端参数 (可二次生成)"
+        echo ""
+    else
+        warn "客户端配置生成失败, 可稍后手动执行:"
+        warn "  python3 ${gen_script} -c ${server_json} -d ${output_dir}"
+    fi
 }
 
 # ============================================================
@@ -525,28 +608,32 @@ full_install() {
     collect_input
 
     echo ""
-    echo -e "${CYAN}[步骤 1/6] 安装 V2Ray${NC}"
+    echo -e "${CYAN}[步骤 1/7] 安装 V2Ray${NC}"
     install_v2ray
 
     echo ""
-    echo -e "${CYAN}[步骤 2/6] 配置 V2Ray${NC}"
+    echo -e "${CYAN}[步骤 2/7] 配置 V2Ray${NC}"
     configure_v2ray
 
     echo ""
-    echo -e "${CYAN}[步骤 3/6] 安装 Nginx 并部署 Web 站点${NC}"
+    echo -e "${CYAN}[步骤 3/7] 安装 Nginx 并部署 Web 站点${NC}"
     install_nginx
 
     echo ""
-    echo -e "${CYAN}[步骤 4/6] 配置 Nginx${NC}"
+    echo -e "${CYAN}[步骤 4/7] 配置 Nginx${NC}"
     configure_nginx
 
     echo ""
-    echo -e "${CYAN}[步骤 5/6] 配置防火墙${NC}"
+    echo -e "${CYAN}[步骤 5/7] 配置防火墙${NC}"
     setup_firewall
 
     echo ""
-    echo -e "${CYAN}[步骤 6/6] 申请并安装 TLS 证书${NC}"
+    echo -e "${CYAN}[步骤 6/7] 申请并安装 TLS 证书${NC}"
     install_cert "$DOMAIN" "$CERT_EMAIL"
+
+    echo ""
+    echo -e "${CYAN}[步骤 7/7] 生成客户端配置文件${NC}"
+    generate_client_configs "$DOMAIN" "$USER_UUID" "$WS_PATH"
 
     echo ""
     echo -e "${GREEN}=====================================${NC}"
@@ -573,31 +660,31 @@ full_install_with_dns() {
     info "服务器公网 IP: ${server_ip}"
 
     echo ""
-    echo -e "${CYAN}[步骤 1/8] 安装 V2Ray${NC}"
+    echo -e "${CYAN}[步骤 1/9] 安装 V2Ray${NC}"
     install_v2ray
 
     echo ""
-    echo -e "${CYAN}[步骤 2/8] 配置 V2Ray${NC}"
+    echo -e "${CYAN}[步骤 2/9] 配置 V2Ray${NC}"
     configure_v2ray
 
     echo ""
-    echo -e "${CYAN}[步骤 3/8] 安装 Nginx 并部署 Web 站点${NC}"
+    echo -e "${CYAN}[步骤 3/9] 安装 Nginx 并部署 Web 站点${NC}"
     install_nginx
 
     echo ""
-    echo -e "${CYAN}[步骤 4/8] 配置 Nginx${NC}"
+    echo -e "${CYAN}[步骤 4/9] 配置 Nginx${NC}"
     configure_nginx
 
     echo ""
-    echo -e "${CYAN}[步骤 5/8] 配置防火墙${NC}"
+    echo -e "${CYAN}[步骤 5/9] 配置防火墙${NC}"
     setup_firewall
 
     echo ""
-    echo -e "${CYAN}[步骤 6/8] 设置 GoDaddy DNS${NC}"
+    echo -e "${CYAN}[步骤 6/9] 设置 GoDaddy DNS${NC}"
     setup_godaddy_dns "$DOMAIN" "$server_ip"
 
     echo ""
-    echo -e "${CYAN}[步骤 7/8] 等待 DNS 生效${NC}"
+    echo -e "${CYAN}[步骤 7/9] 等待 DNS 生效${NC}"
     # 安装 dig (如果没有)
     if ! command -v dig &>/dev/null; then
         apt install -y dnsutils 2>/dev/null || true
@@ -605,8 +692,12 @@ full_install_with_dns() {
     wait_for_dns "$DOMAIN" "$server_ip"
 
     echo ""
-    echo -e "${CYAN}[步骤 8/8] 申请并安装 TLS 证书${NC}"
+    echo -e "${CYAN}[步骤 8/9] 申请并安装 TLS 证书${NC}"
     install_cert "$DOMAIN" "$CERT_EMAIL"
+
+    echo ""
+    echo -e "${CYAN}[步骤 9/9] 生成客户端配置文件${NC}"
+    generate_client_configs "$DOMAIN" "$USER_UUID" "$WS_PATH"
 
     echo ""
     echo -e "${GREEN}=====================================${NC}"
