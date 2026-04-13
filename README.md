@@ -46,6 +46,8 @@ curl -fsSLO https://raw.githubusercontent.com/seedotlee-lgtm/v2ray-deploy/main/v
 && bash v2ray-deploy.sh install
 ```
 
+> 如果在最后显示证书生成失败大概率是 DNS 设置还未能生效，整体重跑一下就好了
+
 ## v2ray-deploy.sh
 
 在 Debian/Ubuntu VPS 上一键部署 V2Ray + Nginx + WebSocket + TLS，并支持独立更换域名。
