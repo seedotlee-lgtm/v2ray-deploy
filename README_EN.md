@@ -40,6 +40,12 @@ One-click deployment of V2Ray + Nginx + WebSocket + TLS on a Debian/Ubuntu VPS, 
 # Full initial deployment
 bash v2ray-deploy.sh install
 
+# Full deployment with auto GoDaddy DNS setup (A + AAAA records)
+bash v2ray-deploy.sh full
+
+# Add IPv6 support to an existing IPv4-only domain
+bash v2ray-deploy.sh add-ipv6
+
 # Change domain only (keeps UUID, port, and path unchanged; re-issues certificate)
 bash v2ray-deploy.sh change-domain
 
@@ -59,16 +65,39 @@ The script will interactively prompt for the following (press Enter to use auto-
 | WebSocket Path | Nginx forwarding path | `/login` |
 | Email | Let's Encrypt certificate notification email | - |
 
-After confirmation, the script automatically executes 6 steps:
+After confirmation, the script automatically executes 7 steps:
 
 1. Install V2Ray
 2. Configure V2Ray (vmess + WebSocket)
 3. Install Nginx and deploy a camouflage website
-4. Configure Nginx reverse proxy (HTTP + WS forwarding)
-5. Configure firewall (allow ports 80, 443, and the V2Ray port)
+4. Configure Nginx reverse proxy (HTTP + WS forwarding, **dual-stack IPv4 + IPv6 by default**)
+5. Configure firewall (allow ports 80, 443, and the V2Ray port; auto-enables UFW IPv6)
 6. Request and install TLS certificate via certbot (with auto-renewal)
+7. Generate client config files (Clash Verge + Shadowrocket + VMess link)
 
 Upon completion, the full client connection parameters are displayed.
+
+> The Nginx config includes `listen 80; listen [::]:80;` by default. certbot automatically adds the matching `listen 443 ssl; listen [::]:443 ssl;` — no manual tweaks required.
+
+### add-ipv6 Workflow
+
+Use this when the server **already has the IPv4 stack deployed** (V2Ray + Nginx + cert in place) and you want to add IPv6 support afterwards.
+
+```bash
+bash v2ray-deploy.sh add-ipv6
+```
+
+Steps performed:
+
+1. Detect the server's public IPv6 address (errors out if none)
+2. Auto-read the deployed domain from nginx (override interactively if needed)
+3. **Patch the Nginx config**: original config is backed up to `*.bak.YYYYMMDDHHMMSS`; `sed` inserts a `listen [::]:PORT;` line after every `listen PORT;` line, including the `listen 443 ssl;` line written by certbot
+4. `nginx -t` validates and `systemctl reload nginx` applies (no restart needed)
+5. **Set the AAAA DNS record**: choose GoDaddy API automation or manual; in automatic mode the script polls Google/Cloudflare DNS until the AAAA record propagates
+
+> **No certificate re-issuance needed.** Let's Encrypt certificates are bound to the domain, not the IP — the existing cert serves both IPv4 and IPv6 transparently.
+
+> Dual-stack listeners only help if your VPS has a publicly routable IPv6 address. Confirm in your provider's panel that IPv6 is enabled.
 
 ### change-domain Workflow
 
@@ -120,6 +149,7 @@ bash godaddy-dns.sh set
 
 # Create or update a record (non-interactive mode)
 bash godaddy-dns.sh set -d example.com -n dev -t A -v 1.2.3.4
+bash godaddy-dns.sh set -d example.com -n dev -t AAAA -v 2001:db8::1
 bash godaddy-dns.sh set -d example.com -n www -t CNAME -v other.com
 
 # Delete a record
@@ -160,4 +190,35 @@ bash v2ray-deploy.sh install
 # 4. Switch domain after expiry
 bash godaddy-dns.sh set -d newdomain.com -n dev -t A -v <your-VPS-IP>
 bash v2ray-deploy.sh change-domain
+
+# 5. (Optional) Add IPv6 support to an existing IPv4 domain
+bash v2ray-deploy.sh add-ipv6
 ```
+
+---
+
+## IPv6 Support
+
+The script enables Nginx dual-stack listeners (`listen 80;` + `listen [::]:80;`) by default and, in `full` mode, automatically writes both A and AAAA DNS records.
+
+| Scenario | Command |
+|----------|---------|
+| Fresh deploy on a VPS with IPv6 | `bash v2ray-deploy.sh full` (writes A + AAAA) |
+| Fresh deploy with self-managed DNS | `bash v2ray-deploy.sh install` + add A/AAAA records yourself |
+| **Add IPv6 to an existing IPv4 domain** | `bash v2ray-deploy.sh add-ipv6` |
+
+**Verify IPv6 is working:**
+
+```bash
+# Server side: confirm nginx is listening on IPv6
+ss -tlnp | grep -E ':80|:443'        # expect :::80 and :::443
+
+# DNS: AAAA propagation
+dig AAAA your-domain.com @8.8.8.8
+dig AAAA your-domain.com @1.1.1.1
+
+# Client: force IPv6 to confirm reachability
+curl -6 -v https://your-domain.com
+```
+
+> **Note:** Dual-stack support only works if your VPS has a publicly routable IPv6 address. Vultr / DigitalOcean and other major providers ship IPv6 by default — confirm it's enabled in the control panel.
