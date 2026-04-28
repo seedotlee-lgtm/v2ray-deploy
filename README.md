@@ -64,6 +64,12 @@ curl -fsSLO https://raw.githubusercontent.com/seedotlee-lgtm/v2ray-deploy/main/v
 # 首次完整部署
 bash v2ray-deploy.sh install
 
+# 完全版部署 (含自动设置 GoDaddy A + AAAA 记录)
+bash v2ray-deploy.sh full
+
+# 为已部署好的 IPv4 域名补充 IPv6 支持
+bash v2ray-deploy.sh add-ipv6
+
 # 仅更换域名 (保留 UUID、端口、路径不变，重新申请证书)
 bash v2ray-deploy.sh change-domain
 
@@ -88,12 +94,34 @@ bash v2ray-deploy.sh info
 1. 安装 V2Ray
 2. 配置 V2Ray (vmess + WebSocket)
 3. 安装 Nginx 并部署伪装 Web 站点
-4. 配置 Nginx 反向代理 (HTTP + WS 转发)
-5. 配置防火墙 (放行 80、443 及 V2Ray 端口)
+4. 配置 Nginx 反向代理 (HTTP + WS 转发，**默认双栈监听 IPv4 + IPv6**)
+5. 配置防火墙 (放行 80、443 及 V2Ray 端口，自动启用 UFW IPv6 支持)
 6. 通过 certbot 申请并安装 TLS 证书 (自动续期)
 7. 生成客户端配置文件 (Clash Verge + Shadowrocket + VMess 链接)
 
 部署完成后输出完整的客户端连接参数，并在 `client-configs/` 目录生成可直接导入的配置文件。
+
+> Nginx 配置默认包含 `listen 80; listen [::]:80;`，certbot 会自动追加对应的 `listen 443 ssl; listen [::]:443 ssl;`，无需手动调整。
+
+### add-ipv6 流程
+
+适用于服务器**已经部署好 IPv4 版本**（V2Ray + Nginx + 证书已就绪），后期补充 IPv6 支持的场景。
+
+```bash
+bash v2ray-deploy.sh add-ipv6
+```
+
+执行步骤：
+
+1. 自动检测服务器公网 IPv6 地址（无 IPv6 时直接报错退出）
+2. 自动从 nginx 配置读取已部署域名（可手动覆盖）
+3. **修改 Nginx 配置**：原配置文件备份为 `*.bak.YYYYMMDDHHMMSS`，使用 `sed` 在每条 `listen PORT;` 行后追加对应的 `listen [::]:PORT;`，包括 certbot 已写入的 `listen 443 ssl;` 行
+4. `nginx -t` 验证配置后重载（无需重启）
+5. **设置 DNS AAAA 记录**：可选自动 (GoDaddy API) 或手动；自动模式会在 Google/Cloudflare DNS 上轮询验证 AAAA 生效
+
+> **证书无需重新申请**。Let's Encrypt 证书绑定的是域名而非 IP，现有证书直接在 IPv4/IPv6 上复用。
+
+> 仅 nginx 双栈监听仍依赖系统/容器具有可路由的公网 IPv6 地址；若 VPS 未分配 IPv6，请先在面板中开启。
 
 ### change-domain 流程
 
@@ -145,6 +173,7 @@ bash godaddy-dns.sh set
 
 # 新增或修改记录 (非交互模式)
 bash godaddy-dns.sh set -d example.com -n dev -t A -v 1.2.3.4
+bash godaddy-dns.sh set -d example.com -n dev -t AAAA -v 2001:db8::1
 bash godaddy-dns.sh set -d example.com -n www -t CNAME -v other.com
 
 # 删除记录
@@ -210,4 +239,35 @@ bash v2ray-deploy.sh install
 # 4. 域名到期后更换
 bash godaddy-dns.sh set -d newdomain.com -n dev -t A -v <你的VPS IP>
 bash v2ray-deploy.sh change-domain
+
+# 5. (可选) 后期为已有 IPv4 域名补充 IPv6
+bash v2ray-deploy.sh add-ipv6
 ```
+
+---
+
+## IPv6 支持说明
+
+脚本默认在 nginx 中开启 IPv4 + IPv6 双栈监听 (`listen 80;` + `listen [::]:80;`)，并在 `full` 模式下自动设置 DNS A 与 AAAA 记录。
+
+| 场景 | 命令 |
+|------|------|
+| 全新部署且 VPS 已分配 IPv6 | `bash v2ray-deploy.sh full` (自动写 A + AAAA) |
+| 全新部署，DNS 自管 | `bash v2ray-deploy.sh install` + 自行添加 A/AAAA 记录 |
+| **已有 IPv4 域名补充 IPv6** | `bash v2ray-deploy.sh add-ipv6` |
+
+**验证 IPv6 是否生效**：
+
+```bash
+# 服务端检查 nginx 是否监听 IPv6
+ss -tlnp | grep -E ':80|:443'        # 应看到 :::80 和 :::443
+
+# 域名是否解析到 AAAA
+dig AAAA your-domain.com @8.8.8.8
+dig AAAA your-domain.com @1.1.1.1
+
+# 客户端通过 IPv6 实测访问
+curl -6 -v https://your-domain.com
+```
+
+> **注意**：仅当 VPS 自身分配了可路由的公网 IPv6 地址时，脚本才能完成 IPv6 配置。Vultr / DigitalOcean 等主流厂商默认提供 IPv6，需在控制面板中确认已启用。
