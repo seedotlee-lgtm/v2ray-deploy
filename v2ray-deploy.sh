@@ -656,6 +656,141 @@ wait_for_dns() {
 }
 
 # ============================================================
+#  新增一个 IPv6-only 域名 (复用现有 V2Ray 服务)
+# ============================================================
+add_ipv6_only() {
+    check_root
+    check_os
+
+    echo ""
+    echo -e "${CYAN}========== 新增 IPv6-only 域名 ==========${NC}"
+    echo ""
+
+    # 1. 检测服务器 IPv6
+    info "检测服务器公网 IPv6 地址..."
+    local server_ip6
+    server_ip6=$(get_server_ipv6)
+    if [[ -z "$server_ip6" ]]; then
+        error "未检测到公网 IPv6 地址, 请确认服务器已分配 IPv6"
+    fi
+    info "服务器 IPv6: ${server_ip6}"
+
+    # 2. 读取现有 V2Ray 配置 (复用 port / ws_path / uuid)
+    if [[ ! -f /usr/local/etc/v2ray/config.json ]]; then
+        error "未找到 V2Ray 配置文件, 请先运行 install"
+    fi
+    local v2ray_port ws_path uuid
+    v2ray_port=$(grep -oP '"port"\s*:\s*\K\d+' /usr/local/etc/v2ray/config.json 2>/dev/null || echo "")
+    ws_path=$(grep -oP '"path"\s*:\s*"\K[^"]+' /usr/local/etc/v2ray/config.json 2>/dev/null || echo "")
+    uuid=$(grep -oP '"id"\s*:\s*"\K[^"]+' /usr/local/etc/v2ray/config.json 2>/dev/null || echo "")
+    if [[ -z "$v2ray_port" || -z "$ws_path" || -z "$uuid" ]]; then
+        error "无法从 V2Ray 配置中读取端口/路径/UUID, 请检查 /usr/local/etc/v2ray/config.json"
+    fi
+    info "复用现有 V2Ray: port=${v2ray_port}, ws_path=${ws_path}"
+
+    # 3. 收集输入
+    local new_domain email
+    read -rp "请输入新的 IPv6-only 域名 (如 dev6.example.com): " new_domain
+    [[ -z "$new_domain" ]] && error "域名不能为空"
+    read -rp "请输入证书邮箱 (Let's Encrypt 通知): " email
+    [[ -z "$email" ]] && error "邮箱不能为空"
+
+    echo ""
+    echo -e "  新域名:         ${GREEN}${new_domain}${NC}"
+    echo -e "  AAAA 目标:      ${GREEN}${server_ip6}${NC}"
+    echo -e "  V2Ray 端口:     ${GREEN}${v2ray_port}${NC} ${YELLOW}(复用)${NC}"
+    echo -e "  WebSocket 路径: ${GREEN}${ws_path}${NC} ${YELLOW}(复用)${NC}"
+    echo -e "  UUID:           ${GREEN}${uuid}${NC} ${YELLOW}(复用)${NC}"
+    echo -e "  证书邮箱:       ${GREEN}${email}${NC}"
+    echo ""
+    read -rp "确认以上信息? (y/n): " CONFIRM
+    [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]] && error "已取消"
+
+    # 4. AAAA 记录 — 由用户确认是否自动写入, 否则直接跳到证书步骤
+    echo ""
+    echo -e "${CYAN}--- DNS AAAA 记录 ---${NC}"
+    echo -e "  ${new_domain} → AAAA → ${server_ip6}"
+    echo ""
+    read -rp "是否通过 GoDaddy API 自动新增/修改 AAAA 记录? (y=自动, n=跳过): " USE_GODADDY
+    if [[ "$USE_GODADDY" == "y" || "$USE_GODADDY" == "Y" ]]; then
+        setup_godaddy_dns "$new_domain" "" "$server_ip6"
+        if ! command -v dig &>/dev/null; then
+            apt install -y dnsutils 2>/dev/null || true
+        fi
+        wait_for_dns "$new_domain" "" "$server_ip6"
+    else
+        warn "已跳过 DNS 自动设置, 假定 ${new_domain} 的 AAAA 记录已指向 ${server_ip6}"
+        warn "若 AAAA 未生效则下一步 certbot 申请会失败, 建议先验证:"
+        warn "  dig AAAA ${new_domain} @8.8.8.8"
+    fi
+
+    # 5. 站点目录
+    info "创建站点目录..."
+    mkdir -p /var/www/${new_domain}
+    if [[ ! -f /var/www/${new_domain}/index.html ]]; then
+        cat > /var/www/${new_domain}/index.html <<'HTMLEOF'
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Welcome</title></head>
+<body><h1>Welcome to My Site</h1><p>The site is under construction.</p></body>
+</html>
+HTMLEOF
+    fi
+
+    # 6. nginx 配置 (仅 IPv6 监听, 不影响其它域名的 IPv4 监听)
+    info "写入 IPv6-only Nginx 配置..."
+    cat > /etc/nginx/sites-available/${new_domain} <<NEOF
+server {
+    listen [::]:80;
+    server_name ${new_domain};
+
+    root /var/www/${new_domain};
+    index index.html;
+
+    location / {
+        try_files \$uri \$uri/ =404;
+    }
+
+    location ${ws_path} {
+        if (\$http_upgrade != "websocket") {
+            return 404;
+        }
+        proxy_redirect off;
+        proxy_pass http://127.0.0.1:${v2ray_port};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    }
+}
+NEOF
+
+    ln -sf /etc/nginx/sites-available/${new_domain} /etc/nginx/sites-enabled/${new_domain}
+    nginx -t || error "Nginx 配置检测失败"
+    systemctl reload nginx
+    info "Nginx 已重载"
+
+    # 7. 证书 (certbot --nginx 会自动追加 listen [::]:443 ssl;)
+    install_cert "$new_domain" "$email"
+
+    # 8. 客户端配置
+    info "为新域名生成客户端配置..."
+    generate_client_configs "$new_domain" "$uuid" "$ws_path"
+
+    echo ""
+    echo -e "${GREEN}=====================================${NC}"
+    echo -e "${GREEN}  IPv6-only 域名添加完成!${NC}"
+    echo -e "${GREEN}=====================================${NC}"
+    echo -e "  域名:   ${GREEN}${new_domain}${NC} (仅 IPv6 可达)"
+    echo -e "  访问:   ${GREEN}https://${new_domain}${NC}"
+    echo ""
+    warn "注意: IPv4-only 客户端无法访问此域名 (DNS 无 A 记录)"
+    warn "V2Ray 服务未变, 客户端仍使用同一 UUID/路径, 仅切换地址即可"
+}
+
+# ============================================================
 #  为已有 IPv4 域名单独添加 IPv6 支持
 # ============================================================
 add_ipv6() {
@@ -880,17 +1015,20 @@ usage() {
     echo "用法: bash $0 <命令>"
     echo ""
     echo "命令:"
-    echo "  install        部署 V2Ray + WS + TLS + Web (DNS 需自行配置)"
-    echo "  full           完全版部署, 含自动设置 GoDaddy DNS (A + AAAA)"
-    echo "  add-ipv6       为已有 IPv4 域名单独添加 IPv6 支持"
-    echo "  change-domain  仅更换域名并重新申请证书"
-    echo "  info           查看当前配置信息"
+    echo "  install         部署 V2Ray + WS + TLS + Web (DNS 需自行配置)"
+    echo "  full            完全版部署, 含自动设置 GoDaddy DNS (A + AAAA)"
+    echo "  add-ipv6        为已有 IPv4 域名补充 IPv6 (双栈)"
+    echo "  add-ipv6-only   新增一个仅 IPv6 解析的域名 (复用现有 V2Ray)"
+    echo "  change-domain   仅更换域名并重新申请证书"
+    echo "  info            查看当前配置信息"
     echo ""
     echo "说明:"
-    echo "  install   适用于已手动配好 DNS 的场景"
-    echo "  full      一站式部署, 自动调用 godaddy-dns.sh 设置 A/AAAA 记录并等待生效"
-    echo "            需要 godaddy-dns.sh 在同一目录下且已配置好 API 凭证"
-    echo "  add-ipv6  服务器已有 V2Ray + Nginx + 证书, 仅补充 IPv6 listen 指令及 AAAA 记录"
+    echo "  install        适用于已手动配好 DNS 的场景"
+    echo "  full           一站式部署, 自动调用 godaddy-dns.sh 设置 A/AAAA 记录并等待生效"
+    echo "                 需要 godaddy-dns.sh 在同一目录下且已配置好 API 凭证"
+    echo "  add-ipv6       服务器已有 V2Ray + Nginx + 证书, 补充 IPv6 listen 指令及 AAAA 记录"
+    echo "  add-ipv6-only  新域名仅写 AAAA 记录, nginx 仅 [::] 监听, 复用现有 V2Ray 端口/UUID/路径"
+    echo "                 AAAA 记录可选自动写入或跳过 (假定已手动配置)"
     echo ""
 }
 
@@ -903,6 +1041,9 @@ case "${1:-}" in
         ;;
     add-ipv6)
         add_ipv6
+        ;;
+    add-ipv6-only)
+        add_ipv6_only
         ;;
     change-domain)
         check_root
