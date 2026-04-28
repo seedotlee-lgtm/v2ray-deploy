@@ -46,6 +46,9 @@ bash v2ray-deploy.sh full
 # Add IPv6 support to an existing IPv4-only domain
 bash v2ray-deploy.sh add-ipv6
 
+# Add a brand-new IPv6-only domain (reuses the existing V2Ray service)
+bash v2ray-deploy.sh add-ipv6-only
+
 # Change domain only (keeps UUID, port, and path unchanged; re-issues certificate)
 bash v2ray-deploy.sh change-domain
 
@@ -98,6 +101,30 @@ Steps performed:
 > **No certificate re-issuance needed.** Let's Encrypt certificates are bound to the domain, not the IP — the existing cert serves both IPv4 and IPv6 transparently.
 
 > Dual-stack listeners only help if your VPS has a publicly routable IPv6 address. Confirm in your provider's panel that IPv6 is enabled.
+
+### add-ipv6-only Workflow
+
+Use this when you want a **new, separate IPv6-only domain** alongside an already deployed V2Ray service — e.g. you already have `dev.example.com` (dual-stack) and now want `dev6.example.com` to serve IPv6 only.
+
+```bash
+bash v2ray-deploy.sh add-ipv6-only
+```
+
+Steps:
+
+1. Detect the server's public IPv6 address (errors out if none)
+2. **Reuse the existing V2Ray configuration** (port / UUID / WebSocket path) — `/usr/local/etc/v2ray/config.json` is **not** modified
+3. Prompt for the new domain and a certbot email
+4. **AAAA record is opt-in**:
+   - `y` → set/update via GoDaddy API and poll Google/Cloudflare DNS until propagated
+   - `n` → **skip DNS step and jump straight to cert issuance** (assumes you already configured AAAA elsewhere)
+5. Create a dedicated nginx server block with `listen [::]:80;` only (no `listen 80;`) so it never responds on IPv4
+6. certbot issues the cert (auto-adds `listen [::]:443 ssl;`)
+7. Regenerate client config files into `client-configs/`
+
+> **No V2Ray restart needed.** The inbound stays on `127.0.0.1:${V2RAY_PORT}`, talking to nginx via loopback only — completely decoupled from the external IP stack. Clients keep the same UUID and path, only the address changes.
+
+> **Limitation**: an IPv6-only domain is unreachable from IPv4-only clients (some mobile carriers, corporate networks).
 
 ### change-domain Workflow
 
@@ -206,6 +233,7 @@ The script enables Nginx dual-stack listeners (`listen 80;` + `listen [::]:80;`)
 | Fresh deploy on a VPS with IPv6 | `bash v2ray-deploy.sh full` (writes A + AAAA) |
 | Fresh deploy with self-managed DNS | `bash v2ray-deploy.sh install` + add A/AAAA records yourself |
 | **Add IPv6 to an existing IPv4 domain** | `bash v2ray-deploy.sh add-ipv6` |
+| **Add a separate IPv6-only domain** | `bash v2ray-deploy.sh add-ipv6-only` |
 
 **Verify IPv6 is working:**
 
