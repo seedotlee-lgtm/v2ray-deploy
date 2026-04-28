@@ -70,6 +70,9 @@ bash v2ray-deploy.sh full
 # 为已部署好的 IPv4 域名补充 IPv6 支持
 bash v2ray-deploy.sh add-ipv6
 
+# 新增一个仅 IPv6 解析的域名 (复用现有 V2Ray 服务)
+bash v2ray-deploy.sh add-ipv6-only
+
 # 仅更换域名 (保留 UUID、端口、路径不变，重新申请证书)
 bash v2ray-deploy.sh change-domain
 
@@ -122,6 +125,30 @@ bash v2ray-deploy.sh add-ipv6
 > **证书无需重新申请**。Let's Encrypt 证书绑定的是域名而非 IP，现有证书直接在 IPv4/IPv6 上复用。
 
 > 仅 nginx 双栈监听仍依赖系统/容器具有可路由的公网 IPv6 地址；若 VPS 未分配 IPv6，请先在面板中开启。
+
+### add-ipv6-only 流程
+
+适用于"在已部署的 V2Ray 服务上，新增一个仅 IPv6 解析的独立域名"，例如 `dev.example.com` 已是 IPv4 双栈域名，再加一个 `dev6.example.com` 只走 IPv6。
+
+```bash
+bash v2ray-deploy.sh add-ipv6-only
+```
+
+执行步骤：
+
+1. 检测服务器公网 IPv6 地址（无则报错）
+2. **复用现有 V2Ray 配置**（端口 / UUID / WebSocket 路径），不修改 `/usr/local/etc/v2ray/config.json`
+3. 交互输入新域名 + 证书邮箱
+4. **AAAA 记录由用户确认**：
+   - 选 `y`：调用 GoDaddy API 自动写 AAAA，并轮询 Google/Cloudflare DNS 等待生效
+   - 选 `n`：**跳过 DNS 步骤直接进入证书申请**（适合已在其它 DNS 控制台手动配好的情况）
+5. 创建独立的 nginx server block，**只写 `listen [::]:80;`**（不写 `listen 80;`，确保仅 IPv6 响应）
+6. certbot 申请证书（自动追加 `listen [::]:443 ssl;`）
+7. 生成对应的客户端配置文件到 `client-configs/`
+
+> **V2Ray 服务无需重启**。inbound 始终监听 `127.0.0.1:${V2RAY_PORT}`，仅与 nginx 通过本机回环通信，与外部协议栈无关。客户端只需把地址换成新域名，UUID/路径保持不变。
+
+> **限制**：此域名仅 IPv6 可达，IPv4-only 网络（部分移动/办公网）完全无法访问。
 
 ### change-domain 流程
 
@@ -255,6 +282,7 @@ bash v2ray-deploy.sh add-ipv6
 | 全新部署且 VPS 已分配 IPv6 | `bash v2ray-deploy.sh full` (自动写 A + AAAA) |
 | 全新部署，DNS 自管 | `bash v2ray-deploy.sh install` + 自行添加 A/AAAA 记录 |
 | **已有 IPv4 域名补充 IPv6** | `bash v2ray-deploy.sh add-ipv6` |
+| **新增独立的 IPv6-only 域名** | `bash v2ray-deploy.sh add-ipv6-only` |
 
 **验证 IPv6 是否生效**：
 
