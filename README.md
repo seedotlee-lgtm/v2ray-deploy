@@ -10,7 +10,7 @@
 
 需要一台境外 VPS 服务器（Debian / Ubuntu 系统，root 权限）。
 
-推荐使用 [Vultr](https://www.vultr.com/?ref=7163300)，新用户通过推荐链接注册可获得赠款。
+推荐使用 [Google Cloud Platform]([https://www.vultr.com/?ref=7163300](https://console.cloud.google.com/compute/instances?project=gen-lang-client-0794482172))，Gemini 套餐每个月送赠金，基本可以抵扣云引擎费用，首次使用还有 $300 赠送。
 
 ### 2. 域名 & GoDaddy DNS（可选，用于域名解析管理）
 
